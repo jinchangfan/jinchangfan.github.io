@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>多图片上传、压缩与下载</title>
+  <style>
+      body {
+          font-family: Arial, sans-serif;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          height: 100vh;
+          margin: 0;
+          background-color: #f0f0f0;
+      }
+
+      .container {
+          text-align: center;
+          background: white;
+          padding: 16px 64px;
+          border-radius: 10px;
+          box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+      }
+
+      input[type="file"], select {
+          margin-bottom: 20px;
+      }
+
+      /* 按钮样式优化 */
+      button {
+          margin-top: 20px;
+          padding: 10px 20px;
+          font-size: 16px;
+          cursor: pointer;
+          background-color: #4caf50; /* 添加背景色 */
+          color: white; /* 文字颜色 */
+          border: none; /* 去掉边框 */
+          border-radius: 5px; /* 添加圆角 */
+          transition: background-color 0.3s ease; /* 添加过渡效果 */
+      }
+
+      button:hover {
+          background-color: #45a049; /* 悬停时改变背景色 */
+      }
+
+      .progress-container {
+          margin-top: 20px;
+      }
+
+      /* 进度条样式优化 */
+      .progress-bar {
+          width: 0%;
+          height: 20px;
+          background-color: #4caf50; /* 与按钮背景色一致 */
+          text-align: center;
+          line-height: 20px;
+          color: white;
+          border-radius: 5px; /* 添加圆角 */
+          transition: width 0.3s ease; /* 添加过渡效果 */
+      }
+
+      .message-box {
+          position: fixed;
+          top: -100px; /* 初始位置在视口上方 */
+          left: 50%;
+          transform: translate(-50%);
+          padding: 20px;
+          background-color: #75c7b9;
+          color: #fff;
+          border: 1px solid #ccc;
+          box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+          border-radius: 20px;
+          z-index: 1000;
+          opacity: 0; /* 初始透明度为0 */
+          visibility: hidden; /* 初始不可见 */
+          transition: opacity 0.5s ease, visibility 0.5s ease, top 0.5s ease;
+      }
+      .message-box.show {
+          top: 10%;
+          opacity: 1; /* 显示时透明度为1 */
+          visibility: visible; /* 显示时可见 */
+      }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>多图片上传、压缩与下载</h1>
+  <input type="file" id="upload" accept="image/*" multiple>
+  <div>
+    <label for="width">宽度（px）:</label>
+    <input type="number" id="width" value="">
+  </div>
+  <div>
+    <label for="height">高度（px）:</label>
+    <input type="number" id="height" value="">
+  </div>
+  <div style="margin-top: 12px">
+    <label>
+<!--      使用原图分辨率:<input type="checkbox" id="use-original-resolution">-->
+    </label>
+  </div>
+  <select id="quality-select">
+    <option value="0.9">画质: 0.9</option>
+    <option value="0.8">画质: 0.8</option>
+    <option value="0.7">画质: 0.7</option>
+    <option value="0.6">画质: 0.6</option>
+    <option value="0.5">画质: 0.5</option>
+    <option value="0.4">画质: 0.4</option>
+    <option value="0.3">画质: 0.3</option>
+    <option value="0.2">画质: 0.2</option>
+    <option value="0.1">画质: 0.1</option>
+  </select>
+  <input type="checkbox" id="use-original-resolution">
+  <button id="compress-and-download">压缩并下载</button>
+  <div class="progress-container" id="progress-container">
+    <div class="progress-bar" id="progress-bar">0%</div>
+  </div>
+</div>
+
+<div id="messageBox" class="message-box" >
+  所有图片已压缩并下载
+</div>
+
+<script>
+  document.getElementById('compress-and-download').addEventListener('click', async () => {
+    const input = document.getElementById('upload');
+    const widthInput = document.getElementById('width');
+    const heightInput = document.getElementById('height');
+    const qualitySelect = document.getElementById('quality-select');
+    const useOriginalResolutionCheckbox = document.getElementById('use-original-resolution');
+    const selectedQuality = parseFloat(qualitySelect.value);
+    const width = widthInput.value === "" ? 0 : parseInt(widthInput.value, 10);
+    const height = heightInput.value === "" ? 0 : parseInt(heightInput.value, 10);
+    const useOriginalResolution = useOriginalResolutionCheckbox.checked;
+
+    if (!input.files || input.files.length === 0) {
+      alert('请先选择一张或多张图片');
+      return;
+    }
+    if (isNaN(width) || isNaN(height) || width < 0 || height < 0) {
+      alert('请输入有效的宽度和高度');
+      return;
+    }
+    let flag = false;
+    for (let i = 0; i < input.files.length; i++) {
+      if (checkDotCount(input.files[i].name)) {
+        flag = true;
+      }
+    }
+    if (flag) {
+      alert("有文件名的点数量超过1个，不符合要求，不能下载！");
+      return;
+    }
+
+    const files = input.files;
+    const totalFiles = files.length;
+    let processedFiles = 0;
+    const progressBar = document.getElementById('progress-bar');
+
+    const processFile = (file, width, height, quality, useOriginalRes) => {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+
+        reader.onload = async (event) => {
+          const img = new Image();
+          img.src = event.target.result;
+          img.onload = async () => {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+
+            // 设置新的宽高为原图的90%（此处根据quality动态调整，但示例中仍用90%缩放，仅在toBlob时调整质量）
+            let newWidth = width ? width: img.width * quality;
+            let newHeight = height ? height: img.height * quality;
+            if (useOriginalRes) {
+              newWidth = img.width;
+              newHeight = img.height;
+            }
+            canvas.width = newWidth;
+            canvas.height = newHeight;
+
+            // 绘制压缩后的图片
+            ctx.drawImage(img, 0, 0, newWidth, newHeight);
+
+
+            // 转换为Blob对象，并设置质量
+            canvas.toBlob((blob) => {
+              // 创建一个下载链接并模拟点击
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `${file.name.split('.')[0]}.${file.name.split('.')[1]}`;
+              // a.download = `${file.name.split('.')[0]}_compressed.${file.name.split('.')[1]}`;
+              a.style.display = 'none';
+              document.body.appendChild(a);
+              a.click();
+
+              // 清理资源
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+
+              resolve();
+            }, file.type, quality); // 使用selectedQuality作为质量因子
+          };
+        };
+
+        reader.onerror = (error) => {
+          reject(error);
+        };
+
+        reader.readAsDataURL(file);
+      });
+    };
+
+    const processFiles = async () => {
+      for (let i = 0; i < totalFiles; i++) {
+        await processFile(files[i], width, height, selectedQuality, useOriginalResolution);
+        processedFiles++;
+        updateProgressBar();
+      }
+      // 调用函数显示消息框，5秒后隐藏
+      showMessage('所有图片已压缩并下载', 3000);
+    };
+
+    const updateProgressBar = () => {
+      const progress = Math.round((processedFiles / totalFiles) * 100);
+      progressBar.style.width = `${progress}%`;
+      progressBar.textContent = `${progress}%`;
+    };
+
+    processFiles();
+  });
+
+  function showMessage(message, duration) {
+    var messageBox = document.getElementById('messageBox');
+    messageBox.innerHTML = message;
+    messageBox.style.display = 'block'; // 确保元素是可见的（虽然初始时透明度为0且不可见）
+
+    // 添加show类以触发渐变和弹出效果
+    messageBox.classList.add('show');
+
+    // 设置定时器在指定时间后移除show类，开始隐藏消息框的过渡效果
+    setTimeout(function() {
+      messageBox.classList.remove('show');
+    }, duration);
+  }
+
+  function checkDotCount(str) {
+    const dotCount = str.split('.').length - 1;
+    if (dotCount > 1) {
+      return true;
+    }
+    return false;
+  }
+</script>
+</body>
+</html>
